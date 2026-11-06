@@ -73,9 +73,17 @@ const withReaderAssets = (config) => {
     }
     const marker = 'LNReaderReaderAssets';
     if (!contents.includes(marker)) {
-      config.modResults.contents +=
-        `\n# Reader WebView runtime assets bundle (iOS port — see plugins/withReaderAssets.js)\n` +
-        `pod '${RESOURCE_BUNDLE_NAME}', :path => '../${ASSETS_POD_DIR}'\n`;
+      // Must be declared INSIDE the app target block so CocoaPods embeds the
+      // resource bundle into the app. `use_expo_modules!` only exists there.
+      if (!/^\s*use_expo_modules!/m.test(contents)) {
+        throw new Error(
+          'Podfile: expected use_expo_modules! inside the app target block',
+        );
+      }
+      config.modResults.contents = contents.replace(
+        /^(\s*)use_expo_modules!$/m,
+        `$&\n$1pod '${RESOURCE_BUNDLE_NAME}', :path => '../${ASSETS_POD_DIR}'`,
+      );
     }
     return config;
   });
