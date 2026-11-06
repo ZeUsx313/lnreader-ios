@@ -58,7 +58,7 @@ jobs:
       - name: Unit tests (db + rn)
         run: pnpm test
 
-      - name: Plugin engine smoke test (real sources: EN/ZH/AR/JP)
+      - name: 'Plugin engine smoke test (real sources: EN/ZH/AR/JP)'
         run: node scripts/plugin-smoke-test.mjs --out plugin-test-results
 
       - name: Upload plugin test results
