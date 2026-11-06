@@ -74,7 +74,7 @@ jobs:
   build-ios:
     name: iOS Build · iPad Simulator · Unsigned IPA
     needs: quality
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 150
 
     env:
@@ -120,6 +120,7 @@ jobs:
       - name: Build for iOS Simulator (Release)
         run: |
           set -o pipefail
+          xcodebuild -version
           cd ios
           xcodebuild \
             -workspace LNReader.xcworkspace \
@@ -130,7 +131,7 @@ jobs:
             -derivedDataPath ../build-sim \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            build 2>&1 | tee ../xcodebuild-sim.log | xcbeautify --renderer github-actions || true
+            build 2>&1 | tee ../xcodebuild-sim.log | xcbeautify --renderer github-actions
           # Fail if the app bundle was not produced (real gate).
           test -d ../build-sim/Build/Products/Release-iphonesimulator/LNReader.app
 
@@ -208,7 +209,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee ../xcodebuild-device.log | xcbeautify --renderer github-actions || true
+            build 2>&1 | tee ../xcodebuild-device.log | xcbeautify --renderer github-actions
           test -d ../build-device/Build/Products/Release-iphoneos/LNReader.app
 
       - name: Package unsigned IPA
