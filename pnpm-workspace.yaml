@@ -32,3 +32,5 @@ onlyBuiltDependencies:
 
 patchedDependencies:
   '@legendapp/list@3.3.3': patches/@legendapp__list@3.3.3.patch
+  expo-modules-core@57.0.6: patches/expo-modules-core@57.0.6.patch
+  expo-modules-jsi@57.0.3: patches/expo-modules-jsi@57.0.3.patch
