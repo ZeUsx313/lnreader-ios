@@ -117,10 +117,25 @@ jobs:
           # build fails with exit 70:
           #   "error:iOS 26.1 is not installed. Please download and install
           #    the platform from Xcode > Settings > Components."
-          # -downloadPlatform iOS installs the device + simulator platform
-          # SDKs and is idempotent when already present.
           sudo xcodebuild -runFirstLaunch || true
-          xcodebuild -downloadPlatform iOS
+          # Fresh runners occasionally have a wedged CoreSimulatorService
+          # ("Unable to connect to simulator" from -downloadPlatform — runs
+          # #17/#18 failed transiently at exactly this point). Restart it.
+          sudo launchctl kickstart -k system/com.apple.CoreSimulator.CoreSimulatorService || true
+          sleep 10
+          # Installs device+simulator platform SDKs; idempotent when present.
+          for ATTEMPT in 1 2 3; do
+            if xcodebuild -downloadPlatform iOS; then
+              echo "iOS platform installed/verified (attempt $ATTEMPT) ✓"
+              break
+            fi
+            if [ "$ATTEMPT" = "3" ]; then
+              echo "::error::xcodebuild -downloadPlatform iOS failed after 3 attempts"
+              exit 1
+            fi
+            echo "attempt $ATTEMPT failed — retrying in 30s"
+            sleep 30
+          done
           echo "== iphoneos SDK ==" && xcodebuild -version -sdk iphoneos
 
       - name: Setup Node 22
