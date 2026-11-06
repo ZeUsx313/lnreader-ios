@@ -11,14 +11,10 @@ name: iOS Simulator Test
 # (iPad 7th generation 2019, iPadOS 18.5, A10 Fusion).
 # ---------------------------------------------------------------------------
 
+# Manual-only until the unsigned IPA pipeline has passed.
+# Prevent building the simulator in parallel with every IPA fix commit.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - ios-port
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
 
 concurrency:
   group: ios-simulator-test-${{ github.ref }}

@@ -1,5 +1,6 @@
 import ExpoModulesCore
 import Foundation
+import UIKit
 import UniformTypeIdentifiers
 
 /**
@@ -117,8 +118,19 @@ public class NativeFileModule: Module {
     /// Android's ACTION_CREATE_DOCUMENT). Returns the file path to write into.
     AsyncFunction("createDocument") { (filename: String, mimeType: String, promise: Promise) in
       DispatchQueue.main.async {
-        let utType = Self.utType(forMimeType: mimeType) ?? .data
-        let picker = UIDocumentPickerViewController(forExporting: [utType], asCopy: false)
+        // The exporter accepts existing file URLs, not UTType values.
+        // Stage an empty document so the user can choose its destination.
+        _ = mimeType
+        let safeName = (filename as NSString).lastPathComponent
+        let stagedFile = FileManager.default.temporaryDirectory
+          .appendingPathComponent(safeName.isEmpty ? "LNReader.txt" : safeName)
+        if !FileManager.default.fileExists(atPath: stagedFile.path) {
+          guard FileManager.default.createFile(atPath: stagedFile.path, contents: Data()) else {
+            promise.reject("CREATE_FAILED", "Unable to prepare export document")
+            return
+          }
+        }
+        let picker = UIDocumentPickerViewController(forExporting: [stagedFile], asCopy: true)
         picker.nameFieldStringValue = filename
         Self.presentPicker(picker) { urls in
           guard let url = urls.first else {
