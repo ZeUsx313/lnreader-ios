@@ -20,6 +20,8 @@ type NativeFileModule = {
   DocumentDirectoryPath: string;
   ExternalDirectoryPath: string;
   ExternalCachesDirectoryPath: string;
+  /** iOS only: absolute path of the main app bundle. */
+  BundlePath: string;
   createDocument(filename: string, mimeType: string): Promise<string>;
   pickDocument(mimeType: string): Promise<string>;
   pickDirectory(): Promise<DirectorySelection>;
