@@ -1,0 +1,188 @@
+name: iOS Simulator Test
+
+# ---------------------------------------------------------------------------
+# ISOLATED PIPELINE: build for simulator -> boot iPad (7th gen) on iOS 18.5
+# runtime -> install -> launch -> stability watch -> screenshots + logs.
+#
+# Runs INDEPENDENTLY of ios-build.yml (the unsigned IPA pipeline). A failure
+# here can never block or invalidate IPA production — and vice versa.
+#
+# Runtime choice: iOS 18.5 exactly matches the target device
+# (iPad 7th generation 2019, iPadOS 18.5, A10 Fusion).
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios-port
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+
+concurrency:
+  group: ios-simulator-test-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CI: 'true'
+  EXPO_NO_TELEMETRY: '1'
+  BUNDLE_ID: com.rajarsheechatterjee.LNReader
+  SIM_NAME: lnreader-test-ipad
+
+jobs:
+  simulator-test:
+    name: iPad 7th gen · iOS 18.5 · launch + stability
+    runs-on: macos-26
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Same reason as ios-build.yml: Expo 57 SPM packages need Swift tools
+      # 6.2 -> Xcode 26. Runtimes (iOS 18.5) are shared via CoreSimulator and
+      # boot fine under Xcode 26's simctl.
+      - name: Select Xcode 26 (Swift tools 6.2 required by Expo 57 SPM)
+        run: |
+          set -e
+          PREFERRED="/Applications/Xcode_26.1.1.app"
+          if [ ! -d "$PREFERRED" ]; then
+            PREFERRED=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -z "$PREFERRED" ] || [ ! -d "$PREFERRED" ]; then
+            echo "No Xcode 26 found"; ls /Applications | grep -i xcode; exit 1
+          fi
+          echo "Selecting: $PREFERRED"
+          sudo xcode-select -s "$PREFERRED"
+          xcodebuild -version
+          echo "== iOS runtimes ==" && xcrun simctl list runtimes | grep -i ios || true
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@11.20.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate build env (Release)
+        env:
+          MYANIMELIST_CLIENT_ID: ${{ vars.MYANIMELIST_CLIENT_ID }}
+          ANILIST_CLIENT_ID: ${{ vars.ANILIST_CLIENT_ID }}
+        run: pnpm run generate:env:release
+
+      - name: Expo prebuild (iOS, CNG)
+        run: pnpm exec expo prebuild --platform ios --no-install
+
+      - name: Pod install
+        run: |
+          set -o pipefail
+          cd ios
+          pod install 2>&1 | tee pod-install.log
+
+      - name: Build for iOS Simulator (Release)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild \
+            -workspace LNReader.xcworkspace \
+            -scheme LNReader \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ../build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee ../xcodebuild-sim.log | xcbeautify --renderer github-actions
+          # Real gate: complete app bundle (binary + plist + JS bundle).
+          APP=../build-sim/Build/Products/Release-iphonesimulator/LNReader.app
+          test -d "$APP"
+          test -f "$APP/LNReader"
+          test -f "$APP/Info.plist"
+          test -f "$APP/main.jsbundle"
+
+      - name: Assert reader WebView assets are bundled (simulator app)
+        run: |
+          APP=build-sim/Build/Products/Release-iphonesimulator/LNReader.app
+          test -d "$APP/ReaderAssets" || { echo "MISSING ReaderAssets"; ls "$APP"; exit 1; }
+          test -f "$APP/ReaderAssets/css/index.css" || { echo "MISSING css"; exit 1; }
+          test -f "$APP/ReaderAssets/js/core.js"    || { echo "MISSING js"; exit 1; }
+          test -f "$APP/ReaderAssets/fonts/lato.ttf" || { echo "MISSING fonts"; exit 1; }
+          echo "ReaderAssets present in simulator app bundle ✓"
+
+      - name: Create + boot iPad (7th generation) on iOS 18.5
+        run: |
+          set -x
+          # Prefer the exact target runtime (18.5); fall back to any 18.x,
+          # then to the newest available iOS runtime.
+          RUNTIME=$(xcrun simctl list runtimes | grep 'iOS 18.5' | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-18-5' || true)
+          if [ -z "$RUNTIME" ]; then
+            RUNTIME=$(xcrun simctl list runtimes | grep -E 'iOS 18\.' | tail -1 | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-18-[0-9]+' || true)
+          fi
+          if [ -z "$RUNTIME" ]; then
+            RUNTIME=$(xcrun simctl list runtimes | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9]+-[0-9]+' | tail -1)
+          fi
+          echo "Using runtime: $RUNTIME"
+
+          DEVICE_TYPE=$(xcrun simctl list devicetypes | grep 'iPad (7th generation)' | head -1 | sed -E 's/^ *([^(]+) \(([^)]+)\).*/\2/' || true)
+          if [ -z "$DEVICE_TYPE" ]; then
+            DEVICE_TYPE=$(xcrun simctl list devicetypes | grep -i ipad | head -1 | sed -E 's/^ *([^(]+) \(([^)]+)\).*/\2/')
+          fi
+          echo "Device type: $DEVICE_TYPE"
+
+          xcrun simctl create "$SIM_NAME" "$DEVICE_TYPE" "$RUNTIME"
+          xcrun simctl boot "$SIM_NAME"
+          xcrun simctl bootstatus "$SIM_NAME" -b
+          xcrun simctl list devices | grep -A 5 -i booted || true
+
+      - name: Install & launch app on simulator
+        run: |
+          xcrun simctl install "$SIM_NAME" build-sim/Build/Products/Release-iphonesimulator/LNReader.app
+          set -x
+          xcrun simctl launch "$SIM_NAME" "$BUNDLE_ID"
+
+      - name: Stability watch (120s) + screenshots
+        run: |
+          sleep 45
+          mkdir -p artifacts/screenshots
+          xcrun simctl io "$SIM_NAME" screenshot artifacts/screenshots/01-launch.png || true
+          sleep 35
+          xcrun simctl io "$SIM_NAME" screenshot artifacts/screenshots/02-after-80s.png || true
+          sleep 40
+          xcrun simctl io "$SIM_NAME" screenshot artifacts/screenshots/03-after-120s.png || true
+
+          # The app must still be running (i.e. it did not crash at boot).
+          if xcrun simctl spawn "$SIM_NAME" launchctl list | grep -q "$BUNDLE_ID"; then
+            echo "App process alive after 120s ✓"
+            echo "SIM_LAUNCH_OK=1" >> "$GITHUB_ENV"
+          else
+            echo "App process NOT found after 120s — crash likely" >&2
+            xcrun simctl spawn "$SIM_NAME" log show --last 5m --style compact > artifacts/sim-crash-log.txt || true
+            exit 1
+          fi
+
+      - name: Collect simulator logs
+        if: always()
+        run: |
+          mkdir -p artifacts
+          xcrun simctl spawn "$SIM_NAME" log show --last 10m --style compact > artifacts/simulator-log.txt 2>/dev/null || true
+          xcrun simctl list devices > artifacts/simctl-devices.txt 2>/dev/null || true
+          cp xcodebuild-sim.log artifacts/ 2>/dev/null || true
+          cp ios/pod-install.log artifacts/ 2>/dev/null || true
+          ls -R artifacts || true
+
+      - name: Upload simulator artifacts (screenshots · logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-artifacts
+          path: artifacts/
+          retention-days: 30
