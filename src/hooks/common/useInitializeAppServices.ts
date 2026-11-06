@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { initializeInstalledPlugins } from '@plugins/pluginManager';
 import { backgroundTasks } from '@services/backgroundTasks';
+import { iosTaskScheduler } from '@services/backgroundTasks/iosScheduler';
 
 type AppServicesState = {
   ready: boolean;
@@ -15,6 +16,11 @@ const initializeAppServices = (): Promise<void> => {
     initializationPromise = initializeInstalledPlugins()
       .then(async () => {
         await backgroundTasks.refresh();
+        // iOS: resume tasks interrupted by an app kill and run schedules
+        // that became due while the app was closed (the Android module does
+        // this via WorkManager).
+        await iosTaskScheduler.drain();
+        await iosTaskScheduler.checkSchedules();
       })
       .catch(error => {
         initializationPromise = undefined;

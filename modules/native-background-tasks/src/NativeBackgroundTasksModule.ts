@@ -1,4 +1,8 @@
+import { Platform } from 'react-native';
+
 import { requireNativeModule } from 'expo-modules-core';
+
+import IosNativeBackgroundTasks from './IosNativeBackgroundTasks';
 
 export type NativeBackgroundTaskSummary = {
   id: string;
@@ -16,6 +20,8 @@ export type NativeBackgroundTaskSummary = {
 export type NativeBackgroundTaskRecord = NativeBackgroundTaskSummary & {
   payload: string;
   checkpoint?: string;
+  /** Execution lane (queue) the task belongs to. Present on iOS records. */
+  queueName?: string;
 };
 
 type NativeBackgroundTasksModule = {
@@ -56,6 +62,18 @@ type NativeBackgroundTasksModule = {
   cancelAutomaticBackups(): Promise<void>;
 };
 
-export default requireNativeModule<NativeBackgroundTasksModule>(
-  'NativeBackgroundTasks',
-);
+/**
+ * Android uses the native WorkManager-backed module. iOS uses an equivalent
+ * in-runtime implementation (MMKV-persisted queue driven by the foreground
+ * app). See IosNativeBackgroundTasks.ts and docs/ios-port for the trade-offs
+ * (React Native has no headless-JS equivalent on iOS).
+ */
+export default Platform.OS === 'android'
+  ? requireNativeModule<NativeBackgroundTasksModule>('NativeBackgroundTasks')
+  : (IosNativeBackgroundTasks as NativeBackgroundTasksModule);
+
+export {
+  iosBackgroundTaskStorage,
+  iosGetDueSchedules,
+  iosMarkScheduleFired,
+} from './IosNativeBackgroundTasks';

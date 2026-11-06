@@ -20,7 +20,7 @@ const MULTIPLICABLE_TASKS: BackgroundTask['name'][] = [
 ];
 
 const BACKGROUND_TASK_QUEUE_PREFIX = 'lnreader-background-task';
-const MAX_CONCURRENT_DOWNLOADS = 3;
+export const MAX_CONCURRENT_DOWNLOADS = 3;
 
 export const allowsDuplicateTask = (task: BackgroundTask) =>
   MULTIPLICABLE_TASKS.includes(task.name);

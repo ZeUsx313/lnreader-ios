@@ -100,6 +100,8 @@ export class BackgroundTaskQueue {
       }
     });
     await this.refresh();
+    const { iosTaskScheduler } = require('./iosScheduler');
+    void iosTaskScheduler.drain();
   }
 
   async cancelByType(name: BackgroundTask['name']) {
@@ -227,6 +229,11 @@ export class BackgroundTaskQueue {
           getString('notifications.taskQueued', { task: pending.meta.name }),
         );
       }
+      // Android launches WorkManager workers natively; on iOS the queue is
+      // drained in-process. Lazy import avoids the module cycle
+      // BackgroundTaskQueue → iosScheduler → backgroundTasks singleton.
+      const { iosTaskScheduler } = require('./iosScheduler');
+      void iosTaskScheduler.drain();
     } catch (error) {
       this.store(this.getSnapshot().filter(item => item.id !== pending.id));
       showToast(
