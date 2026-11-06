@@ -63,28 +63,34 @@ const withReaderAssets = (config) => {
 
   config = withPodfile(config, (config) => {
     const contents = config.modResults.contents;
-    // Swift pods pulled in transitively by @react-native-google-signin
-    // (AppCheckCore → GoogleUtilities/RecaptchaInterop) require modular
-    // headers when integrated as static libraries.
-    if (!contents.includes('use_modular_headers!')) {
-      config.modResults.contents =
-        `# Swift pods (Firebase AppCheck via google-signin) need modular headers\nuse_modular_headers!\n\n` +
-        contents;
-    }
-    const marker = 'LNReaderReaderAssets';
-    if (!contents.includes(marker)) {
-      // Must be declared INSIDE the app target block so CocoaPods embeds the
-      // resource bundle into the app. `use_expo_modules!` only exists there.
-      if (!/^\s*use_expo_modules!/m.test(contents)) {
-        throw new Error(
-          'Podfile: expected use_expo_modules! inside the app target block',
-        );
-      }
-      config.modResults.contents = contents.replace(
-        /^(\s*)use_expo_modules!$/m,
-        `$&\n$1pod '${RESOURCE_BUNDLE_NAME}', :path => '../${ASSETS_POD_DIR}'`,
+
+    // Both directives MUST live inside the app target block (root-level
+    // placement is ignored by CocoaPods for target-scoped settings).
+    if (!/^\s*use_expo_modules!/m.test(contents)) {
+      throw new Error(
+        'Podfile: expected use_expo_modules! inside the app target block',
       );
     }
+
+    const inTargetInsert = [
+      // Swift pods pulled in transitively by @react-native-google-signin
+      // (AppCheckCore → GoogleUtilities/RecaptchaInterop) require modular
+      // headers when integrated as static libraries.
+      'use_modular_headers!',
+      // Reader WebView runtime assets bundle (see plugins/withReaderAssets.js).
+      `pod '${RESOURCE_BUNDLE_NAME}', :path => '../${ASSETS_POD_DIR}'`,
+    ];
+
+    let nextContents = contents;
+    for (const line of inTargetInsert) {
+      if (!nextContents.includes(line)) {
+        nextContents = nextContents.replace(
+          /^(\s*)use_expo_modules!$/m,
+          match => `${match}\n${line}`,
+        );
+      }
+    }
+    config.modResults.contents = nextContents;
     return config;
   });
 
