@@ -109,7 +109,7 @@ public class NativeFileModule: Module {
           )
           promise.resolve(nil)
         } catch {
-          promise.reject("DOWNLOAD_FAILED", error.localizedDescription, error)
+          promise.reject("DOWNLOAD_FAILED", error.localizedDescription)
         }
       }
     }

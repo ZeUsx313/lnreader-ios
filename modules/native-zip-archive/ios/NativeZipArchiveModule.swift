@@ -25,7 +25,7 @@ public class NativeZipArchiveModule: Module {
           try self.unzipArchive(at: sourceFilePath, toDirectory: distDirPath)
           promise.resolve(nil)
         } catch {
-          promise.reject("UNZIP_FAILED", error.localizedDescription, error)
+          promise.reject("UNZIP_FAILED", error.localizedDescription)
         }
       }
     }
@@ -36,7 +36,7 @@ public class NativeZipArchiveModule: Module {
           try self.zipDirectory(sourceDirPath, to: zipFilePath)
           promise.resolve(nil)
         } catch {
-          promise.reject("ZIP_FAILED", error.localizedDescription, error)
+          promise.reject("ZIP_FAILED", error.localizedDescription)
         }
       }
     }
@@ -50,7 +50,7 @@ public class NativeZipArchiveModule: Module {
           try self.unzipArchive(at: downloadedFile.path, toDirectory: distDirPath)
           promise.resolve(nil)
         } catch {
-          promise.reject("REMOTE_UNZIP_FAILED", error.localizedDescription, error)
+          promise.reject("REMOTE_UNZIP_FAILED", error.localizedDescription)
         }
       }
     }
@@ -70,7 +70,7 @@ public class NativeZipArchiveModule: Module {
           )
           promise.resolve(with: responseBody)
         } catch {
-          promise.reject("REMOTE_ZIP_FAILED", error.localizedDescription, error)
+          promise.reject("REMOTE_ZIP_FAILED", error.localizedDescription)
         }
       }
     }
