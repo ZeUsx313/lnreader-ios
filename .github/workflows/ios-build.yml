@@ -1,0 +1,271 @@
+name: iOS Build & Simulator Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ios-port
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  CI: 'true'
+  EXPO_NO_TELEMETRY: '1'
+  NODE_ENV: 'production'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Quality gate (Linux): lint + types + jest + real-source plugin test
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Lint · Types · Tests · Plugin Smoke (real sources)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@11.20.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate build env
+        run: pnpm run generate:env:debug
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Type-check
+        run: pnpm run type-check
+
+      - name: Unit tests (db + rn)
+        run: pnpm test
+
+      - name: Plugin engine smoke test (real sources: EN/ZH/AR/JP)
+        run: node scripts/plugin-smoke-test.mjs --out plugin-test-results
+
+      - name: Upload plugin test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-smoke-results
+          path: plugin-test-results/
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # 2. iOS build on macOS + iPad Simulator launch test + unsigned device IPA
+  # ---------------------------------------------------------------------------
+  build-ios:
+    name: iOS Build · iPad Simulator · Unsigned IPA
+    needs: quality
+    runs-on: macos-15
+    timeout-minutes: 150
+
+    env:
+      BUNDLE_ID: com.rajarsheechatterjee.LNReader
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+
+      - name: Setup pnpm
+        run: npm install -g pnpm@11.20.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate build env (Release)
+        env:
+          MYANIMELIST_CLIENT_ID: ${{ vars.MYANIMELIST_CLIENT_ID }}
+          ANILIST_CLIENT_ID: ${{ vars.ANILIST_CLIENT_ID }}
+        run: pnpm run generate:env:release
+
+      - name: Expo prebuild (iOS, CNG)
+        run: pnpm exec expo prebuild --platform ios --no-install
+
+      - name: Pod install
+        run: |
+          set -o pipefail
+          cd ios
+          pod install 2>&1 | tee pod-install.log
+
+      - name: Select Xcode
+        run: |
+          ls /Applications | grep -i xcode || true
+          xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios || true
+
+      - name: Build for iOS Simulator (Release)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild \
+            -workspace LNReader.xcworkspace \
+            -scheme LNReader \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ../build-sim \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee ../xcodebuild-sim.log | xcbeautify --renderer github-actions || true
+          # Fail if the app bundle was not produced (real gate).
+          test -d ../build-sim/Build/Products/Release-iphonesimulator/LNReader.app
+
+      - name: Assert reader WebView assets are bundled
+        run: |
+          APP=build-sim/Build/Products/Release-iphonesimulator/LNReader.app
+          test -f "$APP/ReaderAssets/css/index.css" || { echo "MISSING ReaderAssets/css"; exit 1; }
+          test -f "$APP/ReaderAssets/js/core.js"    || { echo "MISSING ReaderAssets/js"; exit 1; }
+          test -f "$APP/ReaderAssets/fonts/lato.ttf" || { echo "MISSING ReaderAssets/fonts"; exit 1; }
+          echo "ReaderAssets present in app bundle ✓"
+
+      - name: Boot iPad Simulator (iOS 18.x)
+        run: |
+          set -x
+          RUNTIME=$(xcrun simctl list runtimes | grep -E 'iOS 18\.' | tail -1 | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-18-[0-9]+' || true)
+          if [ -z "$RUNTIME" ]; then
+            RUNTIME=$(xcrun simctl list runtimes | grep -oE 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9]+-[0-9]+' | tail -1)
+          fi
+          echo "Using runtime: $RUNTIME"
+          DEVICE_TYPE=$(xcrun simctl list devicetypes | grep 'iPad (7th generation)' | head -1 | sed -E 's/^ *([^(]+) \(([^)]+)\).*/\2/' || true)
+          if [ -z "$DEVICE_TYPE" ]; then
+            DEVICE_TYPE=$(xcrun simctl list devicetypes | grep -i ipad | head -1 | sed -E 's/^ *([^(]+) \(([^)]+)\).*/\2/')
+          fi
+          echo "Device type: $DEVICE_TYPE"
+          xcrun simctl create "lnreader-test-ipad" "$DEVICE_TYPE" "$RUNTIME"
+          xcrun simctl boot "lnreader-test-ipad"
+          xcrun simctl bootstatus "lnreader-test-ipad" -b
+
+      - name: Install & launch app on simulator
+        run: |
+          xcrun simctl install "lnreader-test-ipad" build-sim/Build/Products/Release-iphonesimulator/LNReader.app
+          set -x
+          xcrun simctl launch "lnreader-test-ipad" "$BUNDLE_ID"
+
+      - name: Stability watch (120s) + screenshots
+        run: |
+          sleep 45
+          mkdir -p artifacts/screenshots
+          xcrun simctl io "lnreader-test-ipad" screenshot artifacts/screenshots/01-launch.png || true
+          sleep 35
+          xcrun simctl io "lnreader-test-ipad" screenshot artifacts/screenshots/02-after-80s.png || true
+          sleep 40
+          xcrun simctl io "lnreader-test-ipad" screenshot artifacts/screenshots/03-after-120s.png || true
+
+          # The app must still be running (i.e. it did not crash at boot).
+          if xcrun simctl spawn "lnreader-test-ipad" launchctl list | grep -q "$BUNDLE_ID"; then
+            echo "App process alive after 120s ✓"
+            echo "SIM_LAUNCH_OK=1" >> "$GITHUB_ENV"
+          else
+            echo "App process NOT found after 120s — crash likely" >&2
+            xcrun simctl spawn "lnreader-test-ipad" log show --last 5m --style compact > artifacts/sim-crash-log.txt || true
+            exit 1
+          fi
+
+      - name: Collect simulator logs
+        if: always()
+        run: |
+          mkdir -p artifacts
+          xcrun simctl spawn "lnreader-test-ipad" log show --last 10m --style compact > artifacts/simulator-log.txt || true
+          cp xcodebuild-sim.log artifacts/ 2>/dev/null || true
+          cp ios/pod-install.log artifacts/ 2>/dev/null || true
+
+      - name: Build unsigned device app (arm64, Release)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild \
+            -workspace LNReader.xcworkspace \
+            -scheme LNReader \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ../build-device \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee ../xcodebuild-device.log | xcbeautify --renderer github-actions || true
+          test -d ../build-device/Build/Products/Release-iphoneos/LNReader.app
+
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p artifacts/ipa Payload
+          cp -R build-device/Build/Products/Release-iphoneos/LNReader.app Payload/
+          zip -qry "artifacts/ipa/LNReader-ios-unsigned.ipa" Payload
+
+      - name: Verify IPA (structure · arch · plist · unsigned)
+        run: |
+          IPA=artifacts/ipa/LNReader-ios-unsigned.ipa
+          APP=Payload/LNReader.app
+
+          echo "== Payload structure =="
+          test -d "$APP" && echo "Payload/LNReader.app present ✓"
+
+          echo "== Architectures (must be arm64 only) =="
+          lipo -info "$APP/LNReader"
+          lipo -info "$APP/LNReader" | grep -q arm64 || { echo "NOT arm64"; exit 1; }
+          if lipo -info "$APP/LNReader" | grep -q x86_64; then echo "ERROR: simulator arch leaked into device build"; exit 1; fi
+
+          echo "== Info.plist =="
+          MIN_OS=$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist")
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
+          echo "MinimumOSVersion=$MIN_OS bundle=$BUNDLE version=$VERSION"
+          python3 -c "import sys; sys.exit(0 if tuple(int(x) for x in '$MIN_OS'.split('.')) <= (18,5,0) else 1)" \
+            || { echo "MinimumOSVersion above iPadOS 18.5"; exit 1; }
+
+          echo "== Not signed (unsigned IPA) =="
+          codesign -dv "$APP" 2>&1 | grep -qi "linked and embedded" && { echo "Unexpected signature"; exit 1; } || echo "Unsigned ✓"
+
+          echo "== Simulator frameworks must not be linked =="
+          OTU=$(otool -L "$APP/LNReader")
+          echo "$OTU" | grep -qi "iphonesimulator" && { echo "ERROR: simulator runtime linkage"; exit 1; } || echo "No simulator linkage ✓"
+
+          echo "== Size =="
+          SIZE_MB=$(du -m "$IPA" | cut -f1)
+          echo "IPA size: ${SIZE_MB} MB"
+          test "$SIZE_MB" -lt 500 || { echo "IPA unexpectedly large"; exit 1; }
+          {
+            echo "MIN_OS=$MIN_OS"
+            echo "BUNDLE_ID=$BUNDLE"
+            echo "VERSION=$VERSION"
+            echo "SIZE_MB=$SIZE_MB"
+          } > artifacts/ipa-meta.txt
+
+      - name: Upload screenshots & logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-artifacts
+          path: artifacts/
+          retention-days: 30
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: LNReader-ios-unsigned-ipa
+          path: artifacts/ipa/LNReader-ios-unsigned.ipa
+          retention-days: 30

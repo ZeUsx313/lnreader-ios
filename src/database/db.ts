@@ -28,7 +28,24 @@ class MyLogger implements Logger {
 }
 
 const DB_NAME = 'lnreader.db';
-const _db = open({ name: DB_NAME, location: '../files/SQLite' });
+
+/**
+ * op-sqlite resolves `location` relative to the app's Library directory on
+ * iOS; `default` places lnreader.db in the standard Library location. On
+ * Android the legacy `../files/SQLite` subdir is kept for
+ * backwards-compatibility with existing installs. React Native is loaded
+ * lazily so the pure-node test environment can import this module too.
+ */
+const resolveDbLocation = (): string => {
+  try {
+    const { Platform } = require('react-native');
+    return Platform.OS === 'ios' ? 'default' : '../files/SQLite';
+  } catch {
+    return '../files/SQLite';
+  }
+};
+
+const _db = open({ name: DB_NAME, location: resolveDbLocation() });
 
 const INITIAL_MIGRATION_NAME = '20251222152612_past_mandrill';
 const INITIAL_MIGRATION_CREATED_AT = 1766417172000;
