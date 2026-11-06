@@ -21,15 +21,65 @@ index 3046568451ed58bdc7076d6d739dea37f2285859..410b894705034a9cd3cfd6267ac95fb4
      runtime.schedule { [weak appContext] in
        guard let emitter, let appContext else {
 diff --git a/ios/Core/SharedObjects/SharedObjectRegistry.swift b/ios/Core/SharedObjects/SharedObjectRegistry.swift
-index 00ed4071302aa46caa72c6f72efd89f9ffbfd13c..ddb1765cbaecefc73f8a3c919e4fc641e2cbc2aa 100644
+index 00ed4071302aa46caa72c6f72efd89f9ffbfd13c..c8a1bdb3e5eb87c78b5d7259b7361d36975da99c 100644
 --- a/ios/Core/SharedObjects/SharedObjectRegistry.swift
 +++ b/ios/Core/SharedObjects/SharedObjectRegistry.swift
-@@ -19,7 +19,7 @@ public final class SharedObjectRegistry: Sendable {
+@@ -12,6 +12,39 @@ public typealias SharedObjectId = Int
+  */
+ let sharedObjectIdPropertyName = "__expo_shared_object_id__"
+ 
++// Patched (ios-port): preserves true weak semantics without SE-0481
++// (weak-let syntax, implemented in Swift 6.3). Immutable, @unchecked Sendable
++// holder of a weak var - sound because AppContext is already @unchecked
++// Sendable and weak refs are atomically updated by the Objective-C runtime.
++final class WeakAppContextBox: @unchecked Sendable {
++  private weak var appContext: AppContext?
++
++  init(_ appContext: AppContext?) {
++    self.appContext = appContext
++  }
++
++  var value: AppContext? {
++    appContext
++  }
++}
++
++// Patched (ios-port): preserves true `weak` semantics without SE-0481 weak-let syntax,
++// implemented in Swift 6.3). Immutable, @unchecked Sendable holder of a weak var —
++// sound because AppContext is already @unchecked Sendable and weak refs are
++// atomically updated by the Objective-C runtime.
++final class WeakAppContextBox: @unchecked Sendable {
++    private let _appContextBox: WeakAppContextBox
++  private var appContext: AppContext? { _appContextBox.value }
++
++  init(_ appContext: AppContext?) {
++    self._appContextBox = WeakAppContextBox(appContext)
++  }
++
++  var value: AppContext? {
++    appContext
++  }
++}
++
+ /**
+  The registry of shared objects.
+  */
+@@ -19,7 +52,8 @@ public final class SharedObjectRegistry: Sendable {
    /**
     Weak reference to the app context for the registry.
     */
 -  private weak let appContext: AppContext?
-+  private weak var appContext: AppContext?
++    private let _appContextBox: WeakAppContextBox
++  private var appContext: AppContext? { _appContextBox.value }
  
    // `@unchecked` because `SharedObjectNativeState` isn't `Sendable` (its JSI base class isn't), yet a
    // value escapes `withLock` whenever `get`/the lookups return it. Access is always serialized through
+@@ -63,7 +97,7 @@ public final class SharedObjectRegistry: Sendable {
+    The default initializer that takes the app context.
+    */
+   internal init(appContext: AppContext) {
+-    self.appContext = appContext
++    self._appContextBox = WeakAppContextBox(appContext)
+   }
+ 
+   /**
