@@ -50,7 +50,7 @@ jobs:
         run: npm install -g pnpm@11.20.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Generate build env
         run: pnpm run generate:env:debug
@@ -147,7 +147,7 @@ jobs:
         run: npm install -g pnpm@11.20.0
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Generate build env (Release)
         env:
