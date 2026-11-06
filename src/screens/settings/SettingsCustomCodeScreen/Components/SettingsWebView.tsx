@@ -13,6 +13,7 @@ import {
 
 import { getBatteryLevelSync } from 'react-native-device-info';
 import * as Speech from 'expo-speech';
+import { getReaderAssetsPrefix } from '@utils/readerAssets';
 import { dummyHTML } from './dummies';
 import { useTheme } from '@hooks/persisted';
 
@@ -34,9 +35,7 @@ const onLogMessage = (payload: { nativeEvent: { data: string } }) => {
 const { RNDeviceInfo } = NativeModules;
 const deviceInfoEmitter = new NativeEventEmitter(RNDeviceInfo);
 
-const assetsUriPrefix = __DEV__
-  ? 'http://localhost:8081/assets'
-  : 'file:///android_asset';
+const assetsUriPrefix = getReaderAssetsPrefix();
 
 const novel = {
   'artist': null,
@@ -178,7 +177,7 @@ const SettingsWebView = () => {
     }
     @font-face {
       font-family: ${settings.fontFamily};
-      src: url("file:///android_asset/fonts/${settings.fontFamily}.ttf");
+      src: url("${assetsUriPrefix}/fonts/${settings.fontFamily}.ttf");
     }
     </style>
     <link rel="stylesheet" href="${assetsUriPrefix}/css/index.css">

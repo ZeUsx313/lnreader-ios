@@ -24,6 +24,7 @@ import {
 } from '@hooks/persisted/useSettings';
 import { getBatteryLevel } from 'react-native-device-info';
 import { PLUGIN_STORAGE } from '@utils/Storages';
+import { getReaderAssetsPrefix } from '@utils/readerAssets';
 import { useChapterContext } from '../ChapterContext';
 import { ReaderSearchResult } from '../types';
 import { useTtsSession } from '../hooks/useTtsSession';
@@ -120,9 +121,7 @@ const deviceInfoEmitter = new NativeEventEmitter(RNDeviceInfo);
  */
 let lastKnownBatteryLevel = 0;
 
-const assetsUriPrefix = __DEV__
-  ? 'http://localhost:8081/assets'
-  : 'file:///android_asset';
+const assetsUriPrefix = getReaderAssetsPrefix();
 
 const WebViewReader: React.FC<WebViewReaderProps> = ({
   onPress,
@@ -364,11 +363,11 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({
                 <style id="ln-font">
                 @font-face {
                   font-family: ${initialReaderSettings.fontFamily};
-                  src: url("file:///android_asset/fonts/${
+                  src: url("${assetsUriPrefix}/fonts/${
                     initialReaderSettings.fontFamily
                   }.ttf");
                 }
-				</style>
+                                </style>
               <link rel="stylesheet" href="${pluginCustomCSS}">
               <style id="ln-custom-css">${customCSS}</style>
             </head>
@@ -414,6 +413,9 @@ const WebViewReader: React.FC<WebViewReaderProps> = ({
                   },
                 })}
               </script>
+              <script>window.LN_READER_ASSETS_PREFIX = ${JSON.stringify(
+                assetsUriPrefix,
+              )};</script>
               <script src="${assetsUriPrefix}/js/polyfill-onscrollend.js"></script>
               <script src="${assetsUriPrefix}/js/icons.js"></script>
               <script src="${assetsUriPrefix}/js/van.js"></script>

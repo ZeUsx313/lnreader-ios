@@ -121,9 +121,12 @@ window.reader = new (function () {
     );
     if (settings.fontFamily && settings.fontFamily !== loadedFontFamily) {
       loadedFontFamily = settings.fontFamily;
+      var assetsPrefix =
+        (typeof window !== 'undefined' && window.LN_READER_ASSETS_PREFIX) ||
+        'file:///android_asset';
       new FontFace(
         settings.fontFamily,
-        'url("file:///android_asset/fonts/' + settings.fontFamily + '.ttf")',
+        'url("' + assetsPrefix + '/fonts/' + settings.fontFamily + '.ttf")',
       )
         .load()
         .then(function (loadedFont) {

@@ -24,6 +24,7 @@ import { opSqliteAdapter } from './src/rozenite/opSqliteAdapter';
 import { useRozeniteSqlitePlugin } from '@rozenite/sqlite-plugin';
 import { ThemeProvider, useTheme } from '@hooks/persisted/useTheme';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import { ToastHost } from '@components/Common/ToastHost';
 
 enableFreeze(true);
 const sqliteAdapters = __DEV__ && opSqliteAdapter ? [opSqliteAdapter] : [];
@@ -98,6 +99,7 @@ const Application = () => {
               <BottomSheetModalProvider>
                 <StatusBar translucent={true} backgroundColor="transparent" />
                 <Main />
+                <ToastHost />
               </BottomSheetModalProvider>
             </ThemedPaperProvider>
           </SafeAreaProvider>

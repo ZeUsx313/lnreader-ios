@@ -12,6 +12,7 @@ import type { ChapterReaderSettings } from '@hooks/persisted/useSettings';
 
 import color from 'color';
 import { useBatteryLevel } from 'react-native-device-info';
+import { getReaderAssetsPrefix } from '@utils/readerAssets';
 import { useTtsSession } from '@screens/reader/hooks/useTtsSession';
 import type { TtsSettings } from '@modules/nitro-tts';
 import { dummyHTML } from '@screens/settings/SettingsCustomCodeScreen/Components/dummies';
@@ -89,10 +90,7 @@ const SettingsReaderWebView = ({
     updateSettings: updateTtsSettings,
   } = useTtsSession();
 
-  const assetsUriPrefix = useMemo(
-    () => (__DEV__ ? 'http://localhost:8081/assets' : 'file:///android_asset'),
-    [],
-  );
+  const assetsUriPrefix = useMemo(() => getReaderAssetsPrefix(), []);
   const webViewCSS = `
   <link rel="stylesheet" href="${assetsUriPrefix}/css/index.css">
     <style>
@@ -122,7 +120,7 @@ const SettingsReaderWebView = ({
 
       @font-face {
         font-family: ${readerSettings.fontFamily};
-        src: url("file:///android_asset/fonts/${
+        src: url("${assetsUriPrefix}/fonts/${
           readerSettings.fontFamily
         }.ttf");
       }
