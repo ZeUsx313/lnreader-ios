@@ -137,11 +137,11 @@ jobs:
       - name: Assert reader WebView assets are bundled
         run: |
           APP=build-sim/Build/Products/Release-iphonesimulator/LNReader.app
-          test -d "$APP/LNReaderReaderAssets.bundle" || { echo "MISSING LNReaderReaderAssets.bundle"; exit 1; }
-          test -f "$APP/LNReaderReaderAssets.bundle/css/index.css" || { echo "MISSING bundle css"; exit 1; }
-          test -f "$APP/LNReaderReaderAssets.bundle/js/core.js"    || { echo "MISSING bundle js"; exit 1; }
-          test -f "$APP/LNReaderReaderAssets.bundle/fonts/lato.ttf" || { echo "MISSING bundle fonts"; exit 1; }
-          echo "ReaderAssets resource bundle present in app bundle ✓"
+          test -d "$APP/ReaderAssets" || { echo "MISSING ReaderAssets"; ls "$APP"; exit 1; }
+          test -f "$APP/ReaderAssets/css/index.css" || { echo "MISSING css"; exit 1; }
+          test -f "$APP/ReaderAssets/js/core.js"    || { echo "MISSING js"; exit 1; }
+          test -f "$APP/ReaderAssets/fonts/lato.ttf" || { echo "MISSING fonts"; exit 1; }
+          echo "ReaderAssets present in app bundle ✓"
 
       - name: Boot iPad Simulator (iOS 18.x)
         run: |

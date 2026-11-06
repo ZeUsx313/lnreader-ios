@@ -1,20 +1,19 @@
-const { withDangerousMod, withPodfile } = require('@expo/config-plugins');
+const { withDangerousMod, withXcodeProject, withPodfile } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
 const READER_ASSETS_DIR = 'ReaderAssets';
-const ASSETS_POD_DIR = 'reader-assets-ios';
-const RESOURCE_BUNDLE_NAME = 'LNReaderReaderAssets';
 
 /**
  * Packages the reader WebView runtime (css/js/fonts) into the native project:
  *  - Android: copied to android/app/src/main/assets → file:///android_asset/...
- *  - iOS: copied to <root>/reader-assets-ios/ReaderAssets and packaged as the
- *    LNReaderReaderAssets.resource bundle via CocoaPods → the files land in
- *    <mainBundle>/LNReaderReaderAssets.bundle (see src/utils/readerAssets.ts).
+ *  - iOS: copied to ios/<project>/ReaderAssets and registered as a FOLDER
+ *    REFERENCE in the Xcode Resources build phase → the whole directory is
+ *    copied into <App>.app/ReaderAssets (see src/utils/readerAssets.ts).
  *
- * The pod route is used instead of Xcode project edits because resource
- * bundles are deterministic under `expo prebuild` (no PBX surgery).
+ * iOS note: node-xcode's addResourceFile crashes on Expo 57's generated
+ * project because there is no 'Resources' PBXGroup — we create it first, and
+ * force lastKnownFileType=folder so Xcode copies the directory as-is.
  */
 const withReaderAssets = (config) => {
   config = withDangerousMod(config, [
@@ -43,15 +42,18 @@ const withReaderAssets = (config) => {
     'ios',
     (config) => {
       const projectRoot = config.modRequest.projectRoot;
-      const podDir = path.join(projectRoot, ASSETS_POD_DIR, READER_ASSETS_DIR);
+      const platformRoot = config.modRequest.platformProjectRoot;
+      const projectName =
+        config.modRequest.projectName || config.name || 'LNReader';
+      const destDir = path.join(platformRoot, projectName, READER_ASSETS_DIR);
       const sourceRoot = path.join(projectRoot, 'assets', 'reader');
 
-      fs.rmSync(podDir, { recursive: true, force: true });
-      fs.mkdirSync(podDir, { recursive: true });
+      fs.rmSync(destDir, { recursive: true, force: true });
+      fs.mkdirSync(destDir, { recursive: true });
 
       for (const subdir of ['css', 'js', 'fonts']) {
         const src = path.join(sourceRoot, subdir);
-        const dest = path.join(podDir, subdir);
+        const dest = path.join(destDir, subdir);
         if (fs.existsSync(src)) {
           fs.cpSync(src, dest, { recursive: true });
         }
@@ -61,36 +63,59 @@ const withReaderAssets = (config) => {
     },
   ]);
 
+  config = withXcodeProject(config, (config) => {
+    const xcodeProject = config.modResults;
+    const projectName =
+      config.modRequest.projectName || config.name || 'LNReader';
+
+    // Expo 57's generated project has no 'Resources' PBXGroup, and
+    // addResourceFile dereferences it unconditionally — create it first.
+    if (!xcodeProject.pbxGroupByName('Resources')) {
+      const mainGroupUuid = xcodeProject.getFirstProject().firstProject
+        .mainGroup;
+      const { uuid } = xcodeProject.addPbxGroup([], 'Resources');
+      xcodeProject.addToPbxGroup(uuid, mainGroupUuid);
+    }
+
+    const file = xcodeProject.addResourceFile(
+      `"${projectName}/${READER_ASSETS_DIR}"`,
+      { last: true },
+    );
+
+    if (file && file.fileRef) {
+      // Force folder-reference semantics so Xcode copies the directory
+      // verbatim into the .app bundle.
+      const ref =
+        xcodeProject.hash.project.objects.PBXFileReference[file.fileRef];
+      ref.name = READER_ASSETS_DIR;
+      ref.path = `${projectName}/${READER_ASSETS_DIR}`;
+      ref.sourceTree = '<group>';
+      ref.lastKnownFileType = 'folder';
+      delete ref.explicitFileType;
+      delete ref.fileEncoding;
+    }
+
+    return config;
+  });
+
   config = withPodfile(config, (config) => {
     const contents = config.modResults.contents;
 
-    // Both directives MUST live inside the app target block (root-level
-    // placement is ignored by CocoaPods for target-scoped settings).
+    // Target-scoped directive: Swift pods pulled in transitively by
+    // @react-native-google-signin (AppCheckCore → GoogleUtilities /
+    // RecaptchaInterop) require modular headers as static libraries.
+    // Must live INSIDE the app target block.
     if (!/^\s*use_expo_modules!/m.test(contents)) {
       throw new Error(
         'Podfile: expected use_expo_modules! inside the app target block',
       );
     }
-
-    const inTargetInsert = [
-      // Swift pods pulled in transitively by @react-native-google-signin
-      // (AppCheckCore → GoogleUtilities/RecaptchaInterop) require modular
-      // headers when integrated as static libraries.
-      'use_modular_headers!',
-      // Reader WebView runtime assets bundle (see plugins/withReaderAssets.js).
-      `pod '${RESOURCE_BUNDLE_NAME}', :path => '../${ASSETS_POD_DIR}'`,
-    ];
-
-    let nextContents = contents;
-    for (const line of inTargetInsert) {
-      if (!nextContents.includes(line)) {
-        nextContents = nextContents.replace(
-          /^(\s*)use_expo_modules!$/m,
-          match => `${match}\n${line}`,
-        );
-      }
+    if (!contents.includes('use_modular_headers!')) {
+      config.modResults.contents = contents.replace(
+        /^(\s*)use_expo_modules!$/m,
+        match => `${match}\nuse_modular_headers!`,
+      );
     }
-    config.modResults.contents = nextContents;
     return config;
   });
 
