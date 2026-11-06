@@ -62,8 +62,17 @@ const withReaderAssets = (config) => {
   ]);
 
   config = withPodfile(config, (config) => {
+    const contents = config.modResults.contents;
+    // Swift pods pulled in transitively by @react-native-google-signin
+    // (AppCheckCore → GoogleUtilities/RecaptchaInterop) require modular
+    // headers when integrated as static libraries.
+    if (!contents.includes('use_modular_headers!')) {
+      config.modResults.contents =
+        `# Swift pods (Firebase AppCheck via google-signin) need modular headers\nuse_modular_headers!\n\n` +
+        contents;
+    }
     const marker = 'LNReaderReaderAssets';
-    if (!config.modResults.contents.includes(marker)) {
+    if (!contents.includes(marker)) {
       config.modResults.contents +=
         `\n# Reader WebView runtime assets bundle (iOS port — see plugins/withReaderAssets.js)\n` +
         `pod '${RESOURCE_BUNDLE_NAME}', :path => '../${ASSETS_POD_DIR}'\n`;
