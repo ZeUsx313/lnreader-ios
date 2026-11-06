@@ -99,7 +99,7 @@ jobs:
       #   "package 'apple' is using Swift tools version 6.2.0 but the
       #    installed version is 6.1.0"
       # So we must pin an Xcode 26 release BEFORE pod install / xcodebuild.
-      - name: Select Xcode 26 (Swift tools 6.2 required by Expo 57 SPM)
+      - name: Select Xcode 26 + install iOS platform
         run: |
           set -e
           PREFERRED="/Applications/Xcode_26.1.1.app"
@@ -112,7 +112,16 @@ jobs:
           echo "Selecting: $PREFERRED"
           sudo xcode-select -s "$PREFERRED"
           xcodebuild -version
-          echo "== SDKs ==" && xcodebuild -showsdks | grep -i iphoneos || true
+          # Xcode 26 on this image ships WITHOUT the iOS platform components
+          # (Apple's on-demand platform downloads). Without this, any device
+          # build fails with exit 70:
+          #   "error:iOS 26.1 is not installed. Please download and install
+          #    the platform from Xcode > Settings > Components."
+          # -downloadPlatform iOS installs the device + simulator platform
+          # SDKs and is idempotent when already present.
+          sudo xcodebuild -runFirstLaunch || true
+          xcodebuild -downloadPlatform iOS
+          echo "== iphoneos SDK ==" && xcodebuild -version -sdk iphoneos
 
       - name: Setup Node 22
         uses: actions/setup-node@v4

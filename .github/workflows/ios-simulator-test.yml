@@ -47,7 +47,7 @@ jobs:
       # Same reason as ios-build.yml: Expo 57 SPM packages need Swift tools
       # 6.2 -> Xcode 26. Runtimes (iOS 18.5) are shared via CoreSimulator and
       # boot fine under Xcode 26's simctl.
-      - name: Select Xcode 26 (Swift tools 6.2 required by Expo 57 SPM)
+      - name: Select Xcode 26 + install iOS platform
         run: |
           set -e
           PREFERRED="/Applications/Xcode_26.1.1.app"
@@ -60,6 +60,11 @@ jobs:
           echo "Selecting: $PREFERRED"
           sudo xcode-select -s "$PREFERRED"
           xcodebuild -version
+          # Xcode 26 on this image ships WITHOUT the iOS platform components
+          # (Apple's on-demand platform downloads) — required for both device
+          # and simulator destinations. Idempotent when already present.
+          sudo xcodebuild -runFirstLaunch || true
+          xcodebuild -downloadPlatform iOS
           echo "== iOS runtimes ==" && xcrun simctl list runtimes | grep -i ios || true
 
       - name: Setup Node 22
