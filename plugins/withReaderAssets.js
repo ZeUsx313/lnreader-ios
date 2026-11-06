@@ -84,12 +84,15 @@ const withReaderAssets = (config) => {
 
     if (file && file.fileRef) {
       // Force folder-reference semantics so Xcode copies the directory
-      // verbatim into the .app bundle.
+      // verbatim into the .app bundle. NOTE: sourceTree must keep the
+      // embedded quotes — node-xcode writes values verbatim and an unquoted
+      // <group> produces an unparsable pbxproj (CocoaPods integration fails
+      // with "Data missing closing '>').
       const ref =
         xcodeProject.hash.project.objects.PBXFileReference[file.fileRef];
       ref.name = READER_ASSETS_DIR;
       ref.path = `${projectName}/${READER_ASSETS_DIR}`;
-      ref.sourceTree = '<group>';
+      ref.sourceTree = '"<group>"';
       ref.lastKnownFileType = 'folder';
       delete ref.explicitFileType;
       delete ref.fileEncoding;
