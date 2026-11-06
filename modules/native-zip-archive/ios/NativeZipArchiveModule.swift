@@ -68,7 +68,7 @@ public class NativeZipArchiveModule: Module {
             urlString: urlString,
             headers: headers
           )
-          promise.resolve(with: responseBody)
+          promise.resolve(responseBody)
         } catch {
           promise.reject("REMOTE_ZIP_FAILED", error.localizedDescription)
         }
