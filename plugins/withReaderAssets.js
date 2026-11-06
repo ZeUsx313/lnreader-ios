@@ -1,14 +1,20 @@
-const { withDangerousMod, withXcodeProject } = require('@expo/config-plugins');
+const { withDangerousMod, withPodfile } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
 const READER_ASSETS_DIR = 'ReaderAssets';
+const ASSETS_POD_DIR = 'reader-assets-ios';
+const RESOURCE_BUNDLE_NAME = 'LNReaderReaderAssets';
 
 /**
- * Copies the reader WebView runtime (css/js/fonts) into the native project:
- *  - Android: android/app/src/main/assets  → file:///android_asset/...
- *  - iOS:     ios/<project>/ReaderAssets (added to the Resources build phase)
- *             → file://<bundle>/ReaderAssets/...  (see src/utils/readerAssets.ts)
+ * Packages the reader WebView runtime (css/js/fonts) into the native project:
+ *  - Android: copied to android/app/src/main/assets → file:///android_asset/...
+ *  - iOS: copied to <root>/reader-assets-ios/ReaderAssets and packaged as the
+ *    LNReaderReaderAssets.resource bundle via CocoaPods → the files land in
+ *    <mainBundle>/LNReaderReaderAssets.bundle (see src/utils/readerAssets.ts).
+ *
+ * The pod route is used instead of Xcode project edits because resource
+ * bundles are deterministic under `expo prebuild` (no PBX surgery).
  */
 const withReaderAssets = (config) => {
   config = withDangerousMod(config, [
@@ -37,18 +43,15 @@ const withReaderAssets = (config) => {
     'ios',
     (config) => {
       const projectRoot = config.modRequest.projectRoot;
-      const platformRoot = config.modRequest.platformProjectRoot;
-      const projectName =
-        config.modRequest.projectName || config.name || 'LNReader';
-      const destDir = path.join(platformRoot, projectName, READER_ASSETS_DIR);
+      const podDir = path.join(projectRoot, ASSETS_POD_DIR, READER_ASSETS_DIR);
       const sourceRoot = path.join(projectRoot, 'assets', 'reader');
 
-      fs.rmSync(destDir, { recursive: true, force: true });
-      fs.mkdirSync(destDir, { recursive: true });
+      fs.rmSync(podDir, { recursive: true, force: true });
+      fs.mkdirSync(podDir, { recursive: true });
 
       for (const subdir of ['css', 'js', 'fonts']) {
         const src = path.join(sourceRoot, subdir);
-        const dest = path.join(destDir, subdir);
+        const dest = path.join(podDir, subdir);
         if (fs.existsSync(src)) {
           fs.cpSync(src, dest, { recursive: true });
         }
@@ -58,17 +61,13 @@ const withReaderAssets = (config) => {
     },
   ]);
 
-  config = withXcodeProject(config, (config) => {
-    const xcodeProject = config.modResults;
-    const projectName =
-      config.modRequest.projectName || config.name || 'LNReader';
-
-    // Folder reference added to the Resources build phase so the whole
-    // ReaderAssets tree is copied into the .app bundle during the build.
-    xcodeProject.addResourceFile(`"${projectName}/${READER_ASSETS_DIR}"`, {
-      last: true,
-    });
-
+  config = withPodfile(config, (config) => {
+    const marker = 'LNReaderReaderAssets';
+    if (!config.modResults.contents.includes(marker)) {
+      config.modResults.contents +=
+        `\n# Reader WebView runtime assets bundle (iOS port — see plugins/withReaderAssets.js)\n` +
+        `pod '${RESOURCE_BUNDLE_NAME}', :path => '../${ASSETS_POD_DIR}'\n`;
+    }
     return config;
   });
 
