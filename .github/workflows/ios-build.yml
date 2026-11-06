@@ -20,7 +20,6 @@ permissions:
 env:
   CI: 'true'
   EXPO_NO_TELEMETRY: '1'
-  NODE_ENV: 'production'
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -79,6 +78,7 @@ jobs:
     timeout-minutes: 150
 
     env:
+      NODE_ENV: 'production'
       BUNDLE_ID: com.rajarsheechatterjee.LNReader
 
     steps:
